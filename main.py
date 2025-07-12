@@ -13,10 +13,12 @@ import logging
 from config import TELEGRAM_BOT_TOKEN, TEMP_FOLDER, MAX_MEDIA_FILES, MAX_TEXT_LENGTH, ALLOWED_USER_ID
 from social_poster import post_to_telegram, post_to_x
 
-local_server = TelegramAPIServer.from_base('http://telegram-bot-api:8081')
+session = AiohttpSession(
+    api=TelegramAPIServer.from_base('http://telegram-bot-api:8081')
+)
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
-    server=local_server
+    session=session
 )
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -620,14 +622,6 @@ async def main():
     try:
         logging.info("Запуск Social Media Publisher Bot...")
         clean_temp_files()
-        try:
-            result: bool = await bot.log_out()
-            if result:
-                logging.info("Бот успешно вышел из облачного сервера Bot API.")
-            else:
-                logging.warning("Не удалось выйти из облачного сервера Bot API.")
-        except Exception as e:
-            logging.error(f"Ошибка при выходе из облачного сервера Bot API: {e}")
         await dp.start_polling(bot, skip_updates=True)
     except Exception as e:
         logging.error(f"Критическая ошибка: {e}")
