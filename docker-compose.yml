@@ -30,3 +30,6 @@ services:
 networks:
   bot-network:
     driver: bridge
+
+volumes:
+  telegram-bot-api-data:
