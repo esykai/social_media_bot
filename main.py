@@ -1,5 +1,7 @@
 import os
 import asyncio
+import re
+
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
@@ -8,9 +10,10 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from ffmpeg import ffmpeg
 import logging
 
-from config import TELEGRAM_BOT_TOKEN, TEMP_FOLDER, MAX_MEDIA_FILES, MAX_TEXT_LENGTH, ALLOWED_USER_ID
+from config import TELEGRAM_BOT_TOKEN, MAX_MEDIA_FILES, MAX_TEXT_LENGTH, ALLOWED_USER_ID
 from social_poster import post_to_telegram, post_to_x
 
 session = AiohttpSession(
@@ -29,10 +32,6 @@ logging.basicConfig(
 )
 
 
-if not os.path.exists(TEMP_FOLDER):
-    os.makedirs(TEMP_FOLDER)
-
-
 class PostStates(StatesGroup):
     waiting_for_text = State()
     waiting_for_media = State()
@@ -49,19 +48,6 @@ class UserState:
 
 
 user_states = {}
-
-
-def clean_temp_files():
-    """Очистка временных файлов"""
-    if os.path.exists(TEMP_FOLDER):
-        for file in os.listdir(TEMP_FOLDER):
-            file_path = os.path.join(TEMP_FOLDER, file)
-            if os.path.isfile(file_path):
-                try:
-                    os.remove(file_path)
-                    logging.debug(f"Удален файл: {file_path}")
-                except Exception as e:
-                    logging.error(f"Ошибка удаления файла {file_path}: {e}")
 
 
 async def check_access(user_id: int) -> bool:
@@ -164,6 +150,64 @@ def get_content_info(state: UserState) -> str:
     return info
 
 
+async def compress_video(
+    input_path: str,
+    output_path: str,
+    message: types.Message,
+    ffmpeg_path: str = "ffmpeg",
+    crf: int = 23,
+    preset: str = "medium",
+    audio_bitrate: str = "128k"
+) -> bool:
+    """Сжимает видео с использованием FFmpeg и отображает прогресс в Telegram."""
+    if not os.path.exists(input_path):
+        logging.error(f"Файл {input_path} не найден")
+        await message.reply(f"❌ Ошибка: Файл {input_path} не найден.")
+        return False
+    if not os.path.exists(ffmpeg_path):
+        logging.error(f"FFmpeg не найден по пути {ffmpeg_path}")
+        await message.reply(f"❌ Ошибка: FFmpeg не найден по пути {ffmpeg_path}.")
+        return False
+
+    progress_message = None
+    try:
+        ff = ffmpeg.FFmpeg(executable=ffmpeg_path)
+        ff.input(input_path)
+
+        progress_message = await message.reply("⏳ Сжатие видео началось... 0%")
+
+        def handle_progress(line):
+            match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
+            if match:
+                time_str = match.group(1)
+                asyncio.create_task(progress_message.edit_text(f"⏳ Сжатие видео: {time_str}"))
+
+        ff.on("stderr", handle_progress)
+
+        ff.output(
+            output_path,
+            vcodec="libx264",
+            crf=crf,
+            preset=preset,
+            acodec="aac",
+            **{"b:a": audio_bitrate},
+            movflags="faststart"
+        )
+
+        ff.execute()
+        await progress_message.edit_text("✅ Видео успешно сжато!")
+        logging.info(f"Видео сжато: {output_path}")
+        return True
+    except ffmpeg.FFmpegError as e:
+        await progress_message.edit_text(f"❌ Ошибка FFmpeg: {str(e)}")
+        logging.error(f"Ошибка FFmpeg при сжатии {input_path}: {e}")
+        return False
+    except Exception as e:
+        await progress_message.edit_text(f"❌ Ошибка при сжатии видео: {str(e)}")
+        logging.error(f"Ошибка при сжатии {input_path}: {e}")
+        return False
+
+
 @dp.message(CommandStart())
 async def start(message: types.Message):
     """Обработка команды /start"""
@@ -173,7 +217,6 @@ async def start(message: types.Message):
         await message.reply("🚫 Доступ только для авторизованного пользователя.")
         return
 
-    clean_temp_files()
     state = await get_user_state(user_id)
 
     welcome_text = (
@@ -572,7 +615,30 @@ async def handle_video(message: types.Message):
     try:
         video = message.video
         file_info = await bot.get_file(video.file_id)
-        user_state.media_files.append(file_info.file_path)
+        compressed_path = f"media/video_{user_id}_{video.file_id}_compressed.mp4"
+
+        os.makedirs("media", exist_ok=True)
+
+        file_size_mb = os.path.getsize(file_info.file_path) / (1024 * 1024)
+        final_path = file_info.file_path
+
+        if file_size_mb > 30:
+            await message.reply(f"🎥 Видео ({file_size_mb:.2f} МБ) превышает 30 МБ, сжатие началось...")
+            ffmpeg_path = "C:/ffmpeg-7.1.1-essentials_build/bin/ffmpeg.exe"  # Укажите ваш путь
+            success = await compress_video(file_info.file_path, compressed_path, message, ffmpeg_path=ffmpeg_path, crf=23,
+                                           preset="medium")
+            if success:
+                final_path = compressed_path
+                if os.path.exists(file_info.file_path):
+                    os.remove(file_info.file_path)
+                    logging.debug(f"Удалён оригинальный файл: {file_info.file_path}")
+            else:
+                await message.reply("❌ Не удалось сжать видео, используется оригинал")
+                final_path = file_info.file_path
+        else:
+            await message.reply(f"🎥 Видео ({file_size_mb:.2f} МБ) не требует сжатия")
+
+        user_state.media_files.append(final_path)
 
         if message.caption:
             if len(message.caption) <= MAX_TEXT_LENGTH:
@@ -615,7 +681,6 @@ async def main():
     """Главная функция запуска бота"""
     try:
         logging.info("Запуск Social Media Publisher Bot...")
-        clean_temp_files()
         await dp.start_polling(bot, skip_updates=True)
     except Exception as e:
         logging.error(f"Критическая ошибка: {e}")
