@@ -17,7 +17,10 @@ session = AiohttpSession(
     api=TelegramAPIServer.from_base('http://telegram-bot-api:8081/bot'),
     timeout=60,
 )
-bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
+bot = Bot(
+    token=TELEGRAM_BOT_TOKEN,
+    session=session
+)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
