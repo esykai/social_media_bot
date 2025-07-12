@@ -23,7 +23,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push bot image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -33,7 +33,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deploy to server
+      - name: Deploy via SSH and docker-compose
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -41,21 +41,25 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: 22
           script: |
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/social-media-bot:latest
+            if [ ! -d ~/social-media-bot ]; then
+              git clone https://github.com/${{ github.repository }} ~/social-media-bot
+            fi
 
-            docker stop social-media-bot || true
-            docker rm social-media-bot || true
+            cd ~/social-media-bot
+            git pull origin master
 
-            docker run -d --name social-media-bot \
-              -e TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }} \
-              -e TELEGRAM_GROUP_ID=${{ secrets.TELEGRAM_GROUP_ID }} \
-              -e X_API_KEY=${{ secrets.X_API_KEY }} \
-              -e X_API_SECRET=${{ secrets.X_API_SECRET }} \
-              -e X_ACCESS_TOKEN=${{ secrets.X_ACCESS_TOKEN }} \
-              -e X_ACCESS_TOKEN_SECRET=${{ secrets.X_ACCESS_TOKEN_SECRET }} \
-              -e ALLOWED_USER_ID=${{ secrets.ALLOWED_USER_ID }} \
-              -e MAX_MEDIA_FILES=10 \
-              -e MAX_TEXT_LENGTH=2000 \
-              ${{ secrets.DOCKERHUB_USERNAME }}/social-media-bot:latest
+            export TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}
+            export TELEGRAM_GROUP_ID=${{ secrets.TELEGRAM_GROUP_ID }}
+            export X_API_KEY=${{ secrets.X_API_KEY }}
+            export X_API_SECRET=${{ secrets.X_API_SECRET }}
+            export X_ACCESS_TOKEN=${{ secrets.X_ACCESS_TOKEN }}
+            export X_ACCESS_TOKEN_SECRET=${{ secrets.X_ACCESS_TOKEN_SECRET }}
+            export ALLOWED_USER_ID=${{ secrets.ALLOWED_USER_ID }}
+            export TELEGRAM_API_ID=${{ secrets.TELEGRAM_API_ID }}
+            export TELEGRAM_API_HASH=${{ secrets.TELEGRAM_API_HASH }}
+            export DOCKERHUB_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}
+
+            docker-compose down
+            docker-compose up -d --force-recreate --pull always
 
             docker image prune -f
