@@ -535,9 +535,10 @@ async def handle_photo(message: types.Message):
     try:
         photo = message.photo[-1]
         file_info = await bot.get_file(photo.file_id)
-        file_path = os.path.join(TEMP_FOLDER, f"photo_{user_id}_{len(user_state.media_files)}_{photo.file_id}.jpg")
-
-        await bot.download_file(file_info.file_path, file_path)
+        file_path = file_info.file_path.replace(
+        "/var/lib/telegram-bot-api",
+        "/var/lib/docker/volumes/social-media-bot-api-data/_data"
+        )
         user_state.media_files.append(file_path)
 
         if message.caption:
@@ -575,9 +576,10 @@ async def handle_video(message: types.Message):
     try:
         video = message.video
         file_info = await bot.get_file(video.file_id)
-        file_path = os.path.join(TEMP_FOLDER, f"video_{user_id}_{len(user_state.media_files)}_{video.file_id}.mp4")
-
-        await bot.download_file(file_info.file_path, file_path)
+        file_path = file_info.file_path.replace(
+            "/var/lib/telegram-bot-api",
+            "/var/lib/docker/volumes/social-media-bot-api-data/_data"
+        )
         user_state.media_files.append(file_path)
 
         if message.caption:
