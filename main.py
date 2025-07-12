@@ -620,7 +620,14 @@ async def main():
     try:
         logging.info("Запуск Social Media Publisher Bot...")
         clean_temp_files()
-        await dp.start_polling(bot, skip_updates=True)
+        try:
+            result: bool = await bot.log_out()
+            if result:
+                logging.info("Бот успешно вышел из облачного сервера Bot API.")
+            else:
+                logging.warning("Не удалось выйти из облачного сервера Bot API.")
+        except Exception as e:
+            logging.error(f"Ошибка при выходе из облачного сервера Bot API: {e}")
     except Exception as e:
         logging.error(f"Критическая ошибка: {e}")
     finally:
