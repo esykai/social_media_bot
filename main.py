@@ -1,7 +1,9 @@
 import os
 import asyncio
 import shutil
+import time
 
+import aiohttp
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.telegram import TelegramAPIServer
@@ -12,7 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 import logging
 
-from config import TELEGRAM_BOT_TOKEN, MAX_MEDIA_FILES, MAX_TEXT_LENGTH, ALLOWED_USER_ID
+from config import TELEGRAM_BOT_TOKEN, MAX_MEDIA_FILES, MAX_TEXT_LENGTH, ALLOWED_USER_ID, FREE_CONVERT_API
 from social_poster import post_to_telegram, post_to_x
 
 session = AiohttpSession(
@@ -153,43 +155,100 @@ async def compress_video(
     input_path: str,
     output_path: str,
     message: types.Message,
-    ffmpeg_path: str = "ffmpeg",
+    api_key: str = FREE_CONVERT_API,
     crf: int = 23,
     preset: str = "medium",
     audio_bitrate: str = "128k"
 ) -> bool:
-    """Сжимает видео с использованием FFmpeg и отображает прогресс в Telegram."""
+    """Сжимает видео с использованием FreeConvert API и отображает прогресс в Telegram."""
 
     if not os.path.exists(input_path):
         logging.error(f"Файл {input_path} не найден")
         await message.reply(f"❌ Ошибка: Файл {input_path} не найден.")
         return False
 
-    if not shutil.which(ffmpeg_path):
-        logging.error(f"FFmpeg не найден по пути {ffmpeg_path}")
-        await message.reply(f"❌ Ошибка: FFmpeg не найден по пути {ffmpeg_path}.")
+    # Проверка размера файла (максимум 750 МБ)
+    file_size_mb = os.path.getsize(input_path) / (1024 * 1024)
+    if file_size_mb > 750:
+        logging.error(f"Файл {input_path} превышает лимит 750 МБ")
+        await message.reply(f"❌ Ошибка: Файл слишком большой ({file_size_mb:.2f} МБ). Лимит: 750 МБ.")
         return False
 
     progress_message = await message.reply("⏳ Сжатие видео началось...")
 
-    cmd = [
-        ffmpeg_path,
-        "-i", input_path,
-        "-vcodec", "libx264",
-        "-crf", str(crf),
-        "-preset", preset,
-        "-acodec", "aac",
-        "-b:a", audio_bitrate,
-        "-movflags", "faststart",
-        output_path,
-        "-y"
-    ]
+    BASE_URL = 'https://api.freeconvert.com/v1'
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
 
-    try:
-        process = await asyncio.create_subprocess_exec(*cmd)
+    async with aiohttp.ClientSession() as session:
+        try:
+            # Шаг 1: Создать задачу импорта файла
+            import_task = {'tasks': {'import-video': {'operation': 'import/upload'}}}
+            async with session.post(f'{BASE_URL}/process', headers=headers, json=import_task) as response:
+                if response.status != 200:
+                    raise Exception(f"Ошибка создания задачи импорта: {await response.text()}")
+                job = await response.json()
+                upload_url = job['tasks'][0]['result']['form']['url']
+                upload_params = job['tasks'][0]['result']['form']['parameters']
 
-        return_code = await process.wait()
-        if return_code == 0:
+            with open(input_path, 'rb') as video_file:
+                async with session.post(upload_url, data={'file': video_file, **upload_params}) as response:
+                    if response.status != 200:
+                        raise Exception(f"Ошибка загрузки файла: {await response.text()}")
+
+            compress_task = {
+                'tasks': {
+                    'compress-video': {
+                        'operation': 'convert',
+                        'input': 'import-video',
+                        'output_format': 'mp4',
+                        'engine': 'ffmpeg',
+                        'video_codec': 'libx264',
+                        'crf': crf,
+                        'preset': preset,
+                        'audio_codec': 'aac',
+                        'audio_bitrate': int(audio_bitrate.replace('k', '')),
+                        'movflags': 'faststart'
+                    },
+                    'export-video': {
+                        'operation': 'export/url',
+                        'input': 'compress-video'
+                    }
+                }
+            }
+            async with session.post(f'{BASE_URL}/process', headers=headers, json=compress_task) as response:
+                if response.status != 200:
+                    raise Exception(f"Ошибка создания задачи сжатия: {await response.text()}")
+                job = await response.json()
+                job_id = job['id']
+
+            timeout = 600
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                async with session.get(f'{BASE_URL}/process/{job_id}', headers=headers) as response:
+                    if response.status != 200:
+                        raise Exception(f"Ошибка проверки статуса: {await response.text()}")
+                    job_status = await response.json()
+                    if job_status['status'] in ['completed', 'failed']:
+                        break
+                    await asyncio.sleep(2)
+
+            if job_status['status'] == 'failed':
+                raise Exception(f"Задача сжатия не удалась: {job_status.get('message', 'Неизвестная ошибка')}")
+
+            if time.time() - start_time >= timeout:
+                raise Exception("Таймаут ожидания сжатия (10 минут)")
+
+            download_url = job_status['tasks'][1]['result']['files'][0]['url']
+            async with session.get(download_url) as response:
+                if response.status != 200:
+                    raise Exception(f"Ошибка скачивания файла: {await response.text()}")
+                with open(output_path, 'wb') as f:
+                    f.write(await response.read())
+
             original_size = os.path.getsize(input_path)
             compressed_size = os.path.getsize(output_path)
 
@@ -209,15 +268,11 @@ async def compress_video(
             await progress_message.edit_text(f"✅ Видео успешно сжато!\n\n{compression_info}")
             logging.info(f"Видео сжато: {output_path} ({compression_info})")
             return True
-        else:
-            await progress_message.edit_text("❌ Ошибка при сжатии видео.")
-            logging.error(f"FFmpeg вернул код ошибки {return_code}")
-            return False
 
-    except Exception as e:
-        await progress_message.edit_text(f"❌ Ошибка при сжатии видео: {str(e)}")
-        logging.exception(f"Исключение при сжатии: {e}")
-        return False
+        except Exception as e:
+            await progress_message.edit_text(f"❌ Ошибка при сжатии видео: {str(e)}")
+            logging.exception(f"Исключение при сжатии: {e}")
+            return False
 
 
 @dp.message(CommandStart())
