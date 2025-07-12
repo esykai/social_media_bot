@@ -1,4 +1,3 @@
-/config.py
 /.idea/.gitignore
 /.idea/discord.xml
 /.idea/misc.xml
@@ -7,3 +6,4 @@
 /.idea/inspectionProfiles/Project_Default.xml
 /.idea/publisher_content.iml
 /.idea/vcs.xml
+/.env
