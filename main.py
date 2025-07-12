@@ -1,6 +1,8 @@
 import os
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.filters import CommandStart, Command
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
@@ -11,7 +13,11 @@ import logging
 from config import TELEGRAM_BOT_TOKEN, TEMP_FOLDER, MAX_MEDIA_FILES, MAX_TEXT_LENGTH, ALLOWED_USER_ID
 from social_poster import post_to_telegram, post_to_x
 
-bot = Bot(token=TELEGRAM_BOT_TOKEN, base_url="http://telegram-bot-api:8081/bot", timeout=60)
+session = AiohttpSession(
+    api=TelegramAPIServer.from_base('http://telegram-bot-api:8081/bot'),
+    timeout=60,
+)
+bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
