@@ -537,7 +537,7 @@ async def handle_photo(message: types.Message):
         file_info = await bot.get_file(photo.file_id)
         file_path = file_info.file_path.replace(
         "/var/lib/telegram-bot-api",
-        "/var/lib/docker/volumes/social-media-bot-api-data/_data"
+        "/var/lib/docker/volumes/social-media-bot_telegram-bot-api-data/_data"
         )
         user_state.media_files.append(file_path)
 
@@ -577,8 +577,8 @@ async def handle_video(message: types.Message):
         video = message.video
         file_info = await bot.get_file(video.file_id)
         file_path = file_info.file_path.replace(
-            "/var/lib/telegram-bot-api",
-            "/var/lib/docker/volumes/social-media-bot-api-data/_data"
+        "/var/lib/telegram-bot-api",
+        "/var/lib/docker/volumes/social-media-bot_telegram-bot-api-data/_data"
         )
         user_state.media_files.append(file_path)
 
