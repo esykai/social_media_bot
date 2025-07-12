@@ -14,7 +14,7 @@ from config import TELEGRAM_BOT_TOKEN, TEMP_FOLDER, MAX_MEDIA_FILES, MAX_TEXT_LE
 from social_poster import post_to_telegram, post_to_x
 
 session = AiohttpSession(
-    api=TelegramAPIServer.from_base('http://telegram-bot-api:8081')
+    api=TelegramAPIServer.from_base('http://пудж.рф:8081')
 )
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
@@ -516,6 +516,7 @@ async def handle_text_input(message: types.Message, state: FSMContext):
     await message.reply(main_text, reply_markup=keyboard, parse_mode="Markdown")
 
 
+# Обработка фото
 @dp.message(F.photo)
 async def handle_photo(message: types.Message):
     """Обработка фото"""
@@ -534,7 +535,10 @@ async def handle_photo(message: types.Message):
     try:
         photo = message.photo[-1]
         file_info = await bot.get_file(photo.file_id)
-        user_state.media_files.append(file_info.file_path)
+        file_path = os.path.join(TEMP_FOLDER, f"photo_{user_id}_{len(user_state.media_files)}_{photo.file_id}.jpg")
+
+        await bot.download_file(file_info.file_path, file_path)
+        user_state.media_files.append(file_path)
 
         if message.caption:
             if len(message.caption) <= MAX_TEXT_LENGTH:
@@ -571,7 +575,10 @@ async def handle_video(message: types.Message):
     try:
         video = message.video
         file_info = await bot.get_file(video.file_id)
-        user_state.media_files.append(file_info.file_path)
+        file_path = os.path.join(TEMP_FOLDER, f"video_{user_id}_{len(user_state.media_files)}_{video.file_id}.mp4")
+
+        await bot.download_file(file_info.file_path, file_path)
+        user_state.media_files.append(file_path)
 
         if message.caption:
             if len(message.caption) <= MAX_TEXT_LENGTH:
