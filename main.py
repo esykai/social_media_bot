@@ -628,6 +628,7 @@ async def main():
                 logging.warning("Не удалось выйти из облачного сервера Bot API.")
         except Exception as e:
             logging.error(f"Ошибка при выходе из облачного сервера Bot API: {e}")
+        await dp.start_polling(bot, skip_updates=True)
     except Exception as e:
         logging.error(f"Критическая ошибка: {e}")
     finally:
