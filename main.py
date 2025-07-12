@@ -14,7 +14,7 @@ from config import TELEGRAM_BOT_TOKEN, TEMP_FOLDER, MAX_MEDIA_FILES, MAX_TEXT_LE
 from social_poster import post_to_telegram, post_to_x
 
 session = AiohttpSession(
-    api=TelegramAPIServer.from_base('http://пудж.рф:8081')
+    api=TelegramAPIServer.from_base('http://telegram-bot-api:8081')
 )
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
