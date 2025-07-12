@@ -1,6 +1,6 @@
 import os
 import asyncio
-import re
+import shutil
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -10,7 +10,6 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from ffmpeg import ffmpeg
 import logging
 
 from config import TELEGRAM_BOT_TOKEN, MAX_MEDIA_FILES, MAX_TEXT_LENGTH, ALLOWED_USER_ID
@@ -160,51 +159,64 @@ async def compress_video(
     audio_bitrate: str = "128k"
 ) -> bool:
     """Сжимает видео с использованием FFmpeg и отображает прогресс в Telegram."""
+
     if not os.path.exists(input_path):
         logging.error(f"Файл {input_path} не найден")
         await message.reply(f"❌ Ошибка: Файл {input_path} не найден.")
         return False
-    if not os.path.exists(ffmpeg_path):
+
+    if not shutil.which(ffmpeg_path):
         logging.error(f"FFmpeg не найден по пути {ffmpeg_path}")
         await message.reply(f"❌ Ошибка: FFmpeg не найден по пути {ffmpeg_path}.")
         return False
 
-    progress_message = None
+    progress_message = await message.reply("⏳ Сжатие видео началось...")
+
+    cmd = [
+        ffmpeg_path,
+        "-i", input_path,
+        "-vcodec", "libx264",
+        "-crf", str(crf),
+        "-preset", preset,
+        "-acodec", "aac",
+        "-b:a", audio_bitrate,
+        "-movflags", "faststart",
+        output_path,
+        "-y"
+    ]
+
     try:
-        ff = ffmpeg.FFmpeg(executable=ffmpeg_path)
-        ff.input(input_path)
+        process = await asyncio.create_subprocess_exec(*cmd)
 
-        progress_message = await message.reply("⏳ Сжатие видео началось... 0%")
+        return_code = await process.wait()
+        if return_code == 0:
+            original_size = os.path.getsize(input_path)
+            compressed_size = os.path.getsize(output_path)
 
-        def handle_progress(line):
-            match = re.search(r"time=(\d+:\d+:\d+\.\d+)", line)
-            if match:
-                time_str = match.group(1)
-                asyncio.create_task(progress_message.edit_text(f"⏳ Сжатие видео: {time_str}"))
+            if original_size > 0:
+                compression_ratio = 100 - (compressed_size / original_size * 100)
+                original_mb = original_size / (1024 * 1024)
+                compressed_mb = compressed_size / (1024 * 1024)
 
-        ff.on("stderr", handle_progress)
+                compression_info = (
+                    f"📦 Размер до: {original_mb:.2f} MB\n"
+                    f"📦 Размер после: {compressed_mb:.2f} MB\n"
+                    f"📉 Сжато на {compression_ratio:.1f}%"
+                )
+            else:
+                compression_info = "⚠️ Невозможно вычислить степень сжатия (размер исходного файла 0 байт)."
 
-        ff.output(
-            output_path,
-            vcodec="libx264",
-            crf=crf,
-            preset=preset,
-            acodec="aac",
-            **{"b:a": audio_bitrate},
-            movflags="faststart"
-        )
+            await progress_message.edit_text(f"✅ Видео успешно сжато!\n\n{compression_info}")
+            logging.info(f"Видео сжато: {output_path} ({compression_info})")
+            return True
+        else:
+            await progress_message.edit_text("❌ Ошибка при сжатии видео.")
+            logging.error(f"FFmpeg вернул код ошибки {return_code}")
+            return False
 
-        ff.execute()
-        await progress_message.edit_text("✅ Видео успешно сжато!")
-        logging.info(f"Видео сжато: {output_path}")
-        return True
-    except ffmpeg.FFmpegError as e:
-        await progress_message.edit_text(f"❌ Ошибка FFmpeg: {str(e)}")
-        logging.error(f"Ошибка FFmpeg при сжатии {input_path}: {e}")
-        return False
     except Exception as e:
         await progress_message.edit_text(f"❌ Ошибка при сжатии видео: {str(e)}")
-        logging.error(f"Ошибка при сжатии {input_path}: {e}")
+        logging.exception(f"Исключение при сжатии: {e}")
         return False
 
 
@@ -615,26 +627,27 @@ async def handle_video(message: types.Message):
     try:
         video = message.video
         file_info = await bot.get_file(video.file_id)
+        #file_path = file_info.file_path.replace("/var/lib/telegram-bot-api", "./telegram-data")
+        file_path = file_info.file_path
         compressed_path = f"media/video_{user_id}_{video.file_id}_compressed.mp4"
 
         os.makedirs("media", exist_ok=True)
 
-        file_size_mb = os.path.getsize(file_info.file_path) / (1024 * 1024)
-        final_path = file_info.file_path
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        final_path = file_path
 
         if file_size_mb > 30:
             await message.reply(f"🎥 Видео ({file_size_mb:.2f} МБ) превышает 30 МБ, сжатие началось...")
-            ffmpeg_path = "C:/ffmpeg-7.1.1-essentials_build/bin/ffmpeg.exe"  # Укажите ваш путь
-            success = await compress_video(file_info.file_path, compressed_path, message, ffmpeg_path=ffmpeg_path, crf=23,
+            success = await compress_video(file_path, compressed_path, message, crf=23,
                                            preset="medium")
             if success:
                 final_path = compressed_path
-                if os.path.exists(file_info.file_path):
-                    os.remove(file_info.file_path)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
                     logging.debug(f"Удалён оригинальный файл: {file_info.file_path}")
             else:
                 await message.reply("❌ Не удалось сжать видео, используется оригинал")
-                final_path = file_info.file_path
+                final_path = file_path
         else:
             await message.reply(f"🎥 Видео ({file_size_mb:.2f} МБ) не требует сжатия")
 
