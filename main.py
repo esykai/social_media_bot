@@ -535,11 +535,7 @@ async def handle_photo(message: types.Message):
     try:
         photo = message.photo[-1]
         file_info = await bot.get_file(photo.file_id)
-        file_path = file_info.file_path.replace(
-        "/var/lib/telegram-bot-api",
-        "/var/lib/docker/volumes/social-media-bot_telegram-bot-api-data/_data"
-        )
-        user_state.media_files.append(file_path)
+        user_state.media_files.append(file_info.file_path)
 
         if message.caption:
             if len(message.caption) <= MAX_TEXT_LENGTH:
@@ -576,11 +572,7 @@ async def handle_video(message: types.Message):
     try:
         video = message.video
         file_info = await bot.get_file(video.file_id)
-        file_path = file_info.file_path.replace(
-        "/var/lib/telegram-bot-api",
-        "/var/lib/docker/volumes/social-media-bot_telegram-bot-api-data/_data"
-        )
-        user_state.media_files.append(file_path)
+        user_state.media_files.append(file_info.file_path)
 
         if message.caption:
             if len(message.caption) <= MAX_TEXT_LENGTH:

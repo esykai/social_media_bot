@@ -13,6 +13,8 @@ services:
         - MAX_TEXT_LENGTH=2000
     depends_on:
       - telegram-bot-api
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
     networks:
       - bot-network
 
