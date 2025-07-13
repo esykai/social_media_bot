@@ -211,11 +211,16 @@ async def post_to_telegram(bot: Bot, media_paths: list[str], has_media: bool, de
         # Отправляем видео
         for i, video_path in enumerate(videos):
             try:
+                thumb_path = f"thumb_{i}.jpg"
+
                 video = VideoFileClip(video_path)
                 width, height = video.size
+                duration = int(video.duration)
+                video.save_frame(thumb_path, t=1)
                 video.close()
 
                 video_file = FSInputFile(video_path)
+                thumb_file = FSInputFile(thumb_path)
                 caption = description if i == 0 else ""
 
                 await bot.send_video(
@@ -224,7 +229,9 @@ async def post_to_telegram(bot: Bot, media_paths: list[str], has_media: bool, de
                     caption=caption,
                     supports_streaming=True,
                     width=width,
-                    height=height
+                    height=height,
+                    duration=duration,
+                    thumbnail=thumb_file,
                 )
                 logging.info(f"✅ Видео отправлено в Telegram: {video_path}")
                 await asyncio.sleep(1)
