@@ -33,10 +33,7 @@ async def compress_video_with_auto_format(
         output_path=output_path,
         message=message,
         api_key=api_key,
-        input_format=input_format,
-        crf=crf,
-        preset=preset,
-        audio_bitrate=audio_bitrate
+        input_format=input_format
     )
 
 async def compress_video_with_format(
@@ -44,10 +41,7 @@ async def compress_video_with_format(
         output_path: str,
         message: types.Message,
         api_key: str = FREE_CONVERT_API,
-        input_format: str = "mov",
-        crf: int = 23,
-        preset: str = "medium",
-        audio_bitrate: str = "128k"
+        input_format: str = "mov"
 ) -> bool:
     """Версия с указанием кастомного расширения"""
     if not os.path.exists(input_path):
@@ -85,12 +79,16 @@ async def compress_video_with_format(
                         "output_format": "mp4",
                         "options": {
                             "video_codec": "libx264",
-                            "crf": crf,
-                            "preset": preset,
+                            "crf": 23,
+                            "maxrate": "4.5M",
+                            "preset": "faster",
+                            "flags": "+global_header",
+                            "pix_fmt": "yuv420p",
+                            "profile": "baseline",
+                            "movflags": "+faststart",
                             "audio_codec": "aac",
-                            "audio_bitrate": audio_bitrate,
-                            "movflags": "faststart",
-                            "keep_resolution": True
+                            "audio_bitrate": "128k",
+                            "audio_channels": 2
                         }
                     },
                     "export-1": {

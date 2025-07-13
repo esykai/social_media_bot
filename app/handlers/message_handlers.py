@@ -132,7 +132,7 @@ async def handle_video(message: types.Message):
         if file_size_mb > 30:
             await message.reply(f"🎥 Видео ({file_size_mb:.2f} МБ) превышает 30 МБ, начинается сжатие...")
             success = await compress_video_with_format(
-                file_path, compressed_path, message, crf=23, preset="medium"
+                file_path, compressed_path, message
             )
             if success:
                 final_path = compressed_path
