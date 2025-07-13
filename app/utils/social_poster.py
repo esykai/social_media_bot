@@ -6,7 +6,7 @@ import time
 import tweepy
 from aiogram import Bot
 from aiogram.types import FSInputFile, InputMediaPhoto
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 
 from config import (
     X_API_KEY,
