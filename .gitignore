@@ -8,3 +8,9 @@
 /.idea/vcs.xml
 /.env
 /.idea/social_media_bot.iml
+/app/.idea/.gitignore
+/app/.idea/app.iml
+/app/.idea/misc.xml
+/app/.idea/modules.xml
+/app/.idea/inspectionProfiles/profiles_settings.xml
+/app/.idea/vcs.xml
