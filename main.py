@@ -1,6 +1,6 @@
+import json
 import os
 import asyncio
-import shutil
 import time
 
 import aiohttp
@@ -151,16 +151,48 @@ def get_content_info(state: UserState) -> str:
     return info
 
 
-async def compress_video(
-    input_path: str,
-    output_path: str,
-    message: types.Message,
-    api_key: str = FREE_CONVERT_API,
-    crf: int = 23,
-    preset: str = "medium",
-    audio_bitrate: str = "128k"
+async def compress_video_with_auto_format(
+        input_path: str,
+        output_path: str,
+        message: types.Message,
+        api_key: str = FREE_CONVERT_API,
+        crf: int = 23,
+        preset: str = "medium",
+        audio_bitrate: str = "128k"
 ) -> bool:
-    """Сжимает видео с использованием FreeConvert API и отображает прогресс в Telegram."""
+    """Версия с автоматическим определением формата входного файла."""
+
+    input_format = os.path.splitext(input_path)[1].lower().lstrip('.')
+    if input_format == 'mov':
+        input_format = 'mov'
+    elif input_format in ['mp4', 'avi', 'mkv', 'wmv', 'flv']:
+        input_format = input_format
+    else:
+        input_format = 'mp4'  # По умолчанию
+
+    return await compress_video_with_format(
+        input_path=input_path,
+        output_path=output_path,
+        message=types.Message,
+        api_key=api_key,
+        input_format=input_format,
+        crf=crf,
+        preset=preset,
+        audio_bitrate=audio_bitrate
+    )
+
+
+async def compress_video_with_format(
+        input_path: str,
+        output_path: str,
+        message: types.Message,
+        api_key: str = FREE_CONVERT_API,
+        input_format: str = "mov",
+        crf: int = 23,
+        preset: str = "medium",
+        audio_bitrate: str = "128k"
+) -> bool:
+    """Версия с указанием формата входного файла."""
 
     if not os.path.exists(input_path):
         logging.error(f"Файл {input_path} не найден")
@@ -176,76 +208,121 @@ async def compress_video(
 
     progress_message = await message.reply("⏳ Сжатие видео началось...")
 
-    BASE_URL = 'https://api.freeconvert.com/v1'
+    BASE_URL = 'https://api.freeconvert.com/v1/process'
     headers = {
-        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json',
         'Accept': 'application/json',
-        'Content-Type': 'application/json'
+        'Authorization': f'Bearer {api_key}'
     }
 
     async with aiohttp.ClientSession() as session:
         try:
-            # Шаг 1: Создать задачу импорта файла
-            import_task = {'tasks': {'import-video': {'operation': 'import/upload'}}}
-            async with session.post(f'{BASE_URL}/process', headers=headers, json=import_task) as response:
-                if response.status != 200:
-                    raise Exception(f"Ошибка создания задачи импорта: {await response.text()}")
-                job = await response.json()
-                upload_url = job['tasks'][0]['result']['form']['url']
-                upload_params = job['tasks'][0]['result']['form']['parameters']
-
-            with open(input_path, 'rb') as video_file:
-                async with session.post(upload_url, data={'file': video_file, **upload_params}) as response:
-                    if response.status != 200:
-                        raise Exception(f"Ошибка загрузки файла: {await response.text()}")
-
-            compress_task = {
-                'tasks': {
-                    'compress-video': {
-                        'operation': 'convert',
-                        'input': 'import-video',
-                        'output_format': 'mp4',
-                        'engine': 'ffmpeg',
-                        'video_codec': 'libx264',
-                        'crf': crf,
-                        'preset': preset,
-                        'audio_codec': 'aac',
-                        'audio_bitrate': int(audio_bitrate.replace('k', '')),
-                        'movflags': 'faststart'
+            input_body = {
+                "tasks": {
+                    "import-1": {
+                        "operation": "import/upload"
                     },
-                    'export-video': {
-                        'operation': 'export/url',
-                        'input': 'compress-video'
+                    "compress-1": {
+                        "operation": "compress",
+                        "input": "import-1",
+                        "input_format": input_format,
+                        "output_format": "mp4",
+                        "options": {
+                            "video_codec": "libx264",
+                            "crf": crf,
+                            "preset": preset,
+                            "audio_codec": "aac",
+                            "audio_bitrate": audio_bitrate,
+                            "movflags": "faststart"
+                        }
+                    },
+                    "export-1": {
+                        "operation": "export/url",
+                        "input": ["compress-1"]
                     }
                 }
             }
-            async with session.post(f'{BASE_URL}/process', headers=headers, json=compress_task) as response:
-                if response.status != 200:
-                    raise Exception(f"Ошибка создания задачи сжатия: {await response.text()}")
+
+            async with session.post(f'{BASE_URL}/jobs', headers=headers, data=json.dumps(input_body)) as response:
+                if response.status not in [200, 201]:
+                    error_text = await response.text()
+                    logging.error(f"Ошибка создания job: {response.status} - {error_text}")
+                    return False
+
                 job = await response.json()
                 job_id = job['id']
 
+                import_task = None
+                for task in job['tasks']:
+                    if task['name'] == 'import-1':
+                        import_task = task
+                        break
+
+                if not import_task:
+                    logging.error("Не найдена задача импорта")
+                    return False
+
+                upload_url = import_task['result']['form']['url']
+                upload_params = import_task['result']['form']['parameters']
+
+            form_data = aiohttp.FormData()
+            for key, value in upload_params.items():
+                form_data.add_field(key, value)
+
+            with open(input_path, 'rb') as video_file:
+                form_data.add_field('file', video_file, filename=os.path.basename(input_path))
+
+                async with session.post(upload_url, data=form_data) as response:
+                    if response.status not in [200, 201, 204]:
+                        error_text = await response.text()
+                        logging.error(f"Ошибка загрузки файла: {response.status} - {error_text}")
+                        return False
+
             timeout = 600
             start_time = time.time()
-            while time.time() - start_time < timeout:
-                async with session.get(f'{BASE_URL}/process/{job_id}', headers=headers) as response:
-                    if response.status != 200:
-                        raise Exception(f"Ошибка проверки статуса: {await response.text()}")
-                    job_status = await response.json()
-                    if job_status['status'] in ['completed', 'failed']:
-                        break
-                    await asyncio.sleep(2)
 
-            if job_status['status'] == 'failed':
-                raise Exception(f"Задача сжатия не удалась: {job_status.get('message', 'Неизвестная ошибка')}")
+            while time.time() - start_time < timeout:
+                async with session.get(f'{BASE_URL}/jobs/{job_id}', headers=headers) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logging.error(f"Ошибка проверки статуса: {response.status} - {error_text}")
+                        return False
+
+                    job_status = await response.json()
+                    status = job_status['status']
+                    logging.info(f"Статус job: {status}")
+
+                    if status == 'completed':
+                        break
+                    elif status == 'failed':
+                        error_msg = job_status.get('message', 'Неизвестная ошибка')
+                        logging.error(f"Задача сжатия не удалась: {error_msg}")
+                        return False
+
+                await asyncio.sleep(3)
 
             if time.time() - start_time >= timeout:
-                raise Exception("Таймаут ожидания сжатия (10 минут)")
+                logging.error("Таймаут ожидания сжатия (10 минут)")
+                return False
 
-            download_url = job_status['tasks'][1]['result']['files'][0]['url']
+            export_task = None
+            for task in job_status['tasks']:
+                if task['name'] == 'export-1':
+                    export_task = task
+                    break
+
+            if not export_task or 'result' not in export_task or 'url' not in export_task['result']:
+                logging.error("Не найден результат экспорта")
+                return False
+
+            download_url = export_task['result']['url']
+
             async with session.get(download_url) as response:
                 if response.status != 200:
-                    raise Exception(f"Ошибка скачивания файла: {await response.text()}")
+                    error_text = await response.text()
+                    logging.error(f"Ошибка скачивания файла: {response.status} - {error_text}")
+                    return False
+
                 with open(output_path, 'wb') as f:
                     f.write(await response.read())
 
@@ -693,7 +770,7 @@ async def handle_video(message: types.Message):
 
         if file_size_mb > 30:
             await message.reply(f"🎥 Видео ({file_size_mb:.2f} МБ) превышает 30 МБ, сжатие началось...")
-            success = await compress_video(file_path, compressed_path, message, crf=23,
+            success = await compress_video_with_format(file_path, compressed_path, message, crf=23,
                                            preset="medium")
             if success:
                 final_path = compressed_path
