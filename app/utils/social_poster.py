@@ -6,6 +6,7 @@ import time
 import tweepy
 from aiogram import Bot
 from aiogram.types import FSInputFile, InputMediaPhoto
+from moviepy.editor import VideoFileClip
 
 from config import (
     X_API_KEY,
@@ -210,13 +211,20 @@ async def post_to_telegram(bot: Bot, media_paths: list[str], has_media: bool, de
         # Отправляем видео
         for i, video_path in enumerate(videos):
             try:
+                video = VideoFileClip(video_path)
+                width, height = video.size
+                video.close()
+
                 video_file = FSInputFile(video_path)
                 caption = description if i == 0 else ""
+
                 await bot.send_video(
                     chat_id=TELEGRAM_GROUP_ID,
                     video=video_file,
                     caption=caption,
-                    supports_streaming=True
+                    supports_streaming=True,
+                    width=width,
+                    height=height
                 )
                 logging.info(f"✅ Видео отправлено в Telegram: {video_path}")
                 await asyncio.sleep(1)
