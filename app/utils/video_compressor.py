@@ -89,7 +89,8 @@ async def compress_video_with_format(
                             "preset": preset,
                             "audio_codec": "aac",
                             "audio_bitrate": audio_bitrate,
-                            "movflags": "faststart"
+                            "movflags": "faststart",
+                            "keep_resolution": True
                         }
                     },
                     "export-1": {
