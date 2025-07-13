@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from user_state import UserState
+from utils.user_state import UserState
 
 
 def get_platform_status(platforms: dict) -> str:
